@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "preview",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "preview", "--", "--port", "4173", "--strictPort"],
+      "port": 4173
+    },
+    {
+      "name": "milp-dashboard",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["/private/tmp/claude-501/-Users-shreejalluitel-Downloads-claude-projects-luitelshreejal/757f1f21-2b33-4dac-b3ae-9e4b40383dc2/scratchpad/serve.mjs"],
+      "port": 8000
+    }
+  ]
+}

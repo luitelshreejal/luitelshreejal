@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Formulation — People → Projects</title>
+<link rel="stylesheet" href="vendor/katex/katex.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app formulation-app">
+
+  <nav class="top-nav">
+    <a href="index.html" class="top-nav-link">Interactive demo</a>
+    <!-- FORMULATION_NAV_START --><a href="formulation.html" class="top-nav-link active">Formulation</a><!-- FORMULATION_NAV_END -->
+  </nav>
+
+  <header class="hero">
+    <div class="brand">PEOPLE&nbsp;&nbsp;→&nbsp;&nbsp;PROJECTS</div>
+    <h1>Formulation</h1>
+    <p class="subtitle">The math behind the demo: Variant 1's core model, its skill-load refinement (&sect;3.3), and Variant 3's soft-coverage extension.</p>
+  </header>
+
+  <div class="formulation-layout">
+    <aside class="toc" id="toc">
+      <div class="toc-title">On this page</div>
+      <a href="#notation" class="toc-link">Notation</a>
+      <a href="#variant1" class="toc-link">Variant 1 — Hard coverage</a>
+      <a href="#skill-load" class="toc-link">3.3 &middot; Skill-load control</a>
+      <a href="#variant3" class="toc-link">Variant 3 — Soft coverage</a>
+    </aside>
+
+    <main class="formulation-content">
+
+      <section id="notation" class="paper-section">
+        <h2>Notation</h2>
+        <p>The symbols below recur through every variant. Skip ahead if you've seen the deck &mdash; this is a reference, not required reading.</p>
+        <details class="legend">
+          <summary>Symbol legend</summary>
+          <div class="legend-grid">
+            <div><code>i &isin; I</code></div><div>people</div>
+            <div><code>j &isin; J</code></div><div>projects</div>
+            <div><code>s &isin; S</code></div><div>skills</div>
+            <div><code>E_j</code></div><div>people eligible for project <em>j</em></div>
+            <div><code>Q_js</code></div><div>people qualified in skill <em>s</em> for project <em>j</em></div>
+            <div><code>&pi;_js</code></div><div>required proficiency threshold, skill <em>s</em> on <em>j</em></div>
+            <div><code>n_js</code></div><div>headcount required for skill <em>s</em> on <em>j</em></div>
+            <div><code>N&#772;_j, N&#773;_j</code></div><div>min / max team size for <em>j</em></div>
+            <div><code>n&#772;_i</code></div><div>max concurrent projects for person <em>i</em></div>
+            <div><code>B_j</code></div><div>budget cap for project <em>j</em></div>
+            <div><code>f_ij, p_ij, c_ij</code></div><div>fit, preference, cost of <em>i</em> on <em>j</em></div>
+            <div><code>v_j</code></div><div>strategic value of project <em>j</em></div>
+            <div><code>J<sup>man</sup></code></div><div>mandatory (must-staff) projects</div>
+          </div>
+        </details>
+      </section>
+
+      <section id="variant1" class="paper-section">
+        <div class="paper-tag">Variant 1</div>
+        <h2>Static Assignment with Hard Coverage</h2>
+        <p>The base model answers one question: <em>which people staff which projects?</em> Time, roles, and hours are aggregated away; each project <span class="eq-math">\(j\)</span> exposes an estimated per-person workload <span class="eq-math">\(w_j\)</span> (hours over its lifetime), so the cost of assigning <span class="eq-math">\(i\)</span> to <span class="eq-math">\(j\)</span> is <span class="eq-math">\(c_{ij} = c_i \, w_j\)</span>.</p>
+
+        <div class="decision-var">
+          <span class="eq-math">\(x_{ij} \in \{0,1\}\)</span>
+          <span class="decision-var-label">person <em>i</em> is assigned to project <em>j</em> &nbsp;(<span class="eq-math">\(i \in E_j\)</span>)</span>
+        </div>
+
+        <div class="lp-overview">
+          <div class="lp-line">\[ \operatorname*{maximize}_{x} \quad \alpha \sum_{j,i} f_{ij} x_{ij} \;+\; \beta \sum_{j,i} p_{ij} x_{ij} \;-\; \gamma \sum_{j,i} c_{ij} x_{ij} \]</div>
+          <div class="lp-st">s.t.</div>
+          <div class="lp-line">\[ \sum_{i \in Q_{js} \cap E_j} x_{ij} \;\ge\; n_{js} \quad \forall j,s : \pi_{js}\ge 1 \]</div>
+          <div class="lp-line">\[ \underline{N}_j \;\le\; \sum_{i \in E_j} x_{ij} \;\le\; \overline{N}_j \quad \forall j \]</div>
+          <div class="lp-line">\[ \sum_{j:\,i \in E_j} x_{ij} \;\le\; \overline{n}_i \quad \forall i \]</div>
+          <div class="lp-line">\[ \sum_{i \in E_j} c_{ij} x_{ij} \;\le\; B_j \quad \forall j \]</div>
+          <div class="lp-line">\[ x_{ij} \in \{0,1\} \]</div>
+        </div>
+
+        <p class="section-lead">Reading it row by row:</p>
+
+        <div class="eq-block">
+          <div class="eq-row">
+            <span class="eq-num">(1)</span>
+            <div class="eq-math">\[ \operatorname*{maximize}_{x} \quad \alpha \sum_{j \in J}\sum_{i \in E_j} f_{ij}\, x_{ij} \;+\; \beta \sum_{j \in J}\sum_{i \in E_j} p_{ij}\, x_{ij} \;-\; \gamma \sum_{j \in J}\sum_{i \in E_j} c_{ij}\, x_{ij} \]</div>
+          </div>
+          <p class="eq-explain"><strong>Objective.</strong> Maximize a weighted blend of skill fit, stated preference, and cost, summed over every person&ndash;project pair actually assigned. <span class="eq-math">\(\alpha,\beta,\gamma\)</span> are the sliders on the demo page &mdash; turning them changes what the solver is willing to trade off, without touching the model's structure.</p>
+        </div>
+
+        <div class="eq-block" id="v1-cover">
+          <div class="eq-row">
+            <span class="eq-num">(2)</span>
+            <div class="eq-math">\[ \sum_{i \in Q_{js} \cap E_j} x_{ij} \;\ge\; n_{js} \qquad \forall j \in J,\ s \in S : \pi_{js} \ge 1 \]</div>
+          </div>
+          <p class="eq-explain"><strong>Skill coverage.</strong> For every skill <span class="eq-math">\(s\)</span> that project <span class="eq-math">\(j\)</span> requires, at least <span class="eq-math">\(n_{js}\)</span> of the people assigned to <span class="eq-math">\(j\)</span> must be qualified in it. This is the constraint that makes the problem set-covering: coverage is a property of the <em>team</em>, counted over the union of who's on it &mdash; not any single person. <a href="#skill-load" class="inline-link">&rarr; refined into an attributed version below</a>.</p>
+        </div>
+
+        <div class="eq-block">
+          <div class="eq-row">
+            <span class="eq-num">(3)</span>
+            <div class="eq-math">\[ \underline{N}_j \;\le\; \sum_{i \in E_j} x_{ij} \;\le\; \overline{N}_j \qquad \forall j \in J \]</div>
+          </div>
+          <p class="eq-explain"><strong>Team size.</strong> Bounds how many people can be on project <span class="eq-math">\(j\)</span> at once, in either direction.</p>
+        </div>
+
+        <div class="eq-block">
+          <div class="eq-row">
+            <span class="eq-num">(4)</span>
+            <div class="eq-math">\[ \sum_{j:\, i \in E_j} x_{ij} \;\le\; \overline{n}_i \qquad \forall i \in I \]</div>
+          </div>
+          <p class="eq-explain"><strong>Concurrency.</strong> Caps how many projects any one person can be staffed on at the same time.</p>
+        </div>
+
+        <div class="eq-block">
+          <div class="eq-row">
+            <span class="eq-num">(5)</span>
+            <div class="eq-math">\[ \sum_{i \in E_j} c_{ij}\, x_{ij} \;\le\; B_j \qquad \forall j \in J \]</div>
+          </div>
+          <p class="eq-explain"><strong>Budget.</strong> Enforces each project's budget cap.</p>
+        </div>
+
+        <a class="try-live" href="index.html?mode=hard">&rarr; Open this exact model in the interactive demo (Hard coverage)</a>
+      </section>
+
+      <section id="skill-load" class="paper-section paper-section-highlight">
+        <div class="paper-tag paper-tag-accent">&sect; 3.3 &middot; from the paper</div>
+        <h2>Explicit Coverage Variables <span class="subtle">(skill-load control)</span></h2>
+
+        <p>Constraint <a href="#v1-cover" class="inline-link">(2)</a> lets a single versatile person &ldquo;count&rdquo; toward every skill simultaneously, which may be unrealistic: one person cannot in practice <em>own</em> five skill areas on one project. To cap the number of skill requirements a person may cover, introduce</p>
+
+        <div class="decision-var">
+          <span class="eq-math">\(y_{ijs} \in \{0,1\}\)</span>
+          <span class="decision-var-label">person <em>i</em> is designated to cover skill <em>s</em> on project <em>j</em> &nbsp;(<span class="eq-math">\(i \in Q_{js} \cap E_j\)</span>)</span>
+        </div>
+
+        <p>and replace (2) with:</p>
+
+        <div class="eq-block">
+          <div class="eq-row">
+            <span class="eq-num">(6)</span>
+            <div class="eq-math">\[ \sum_{i \in Q_{js} \cap E_j} y_{ijs} \;\ge\; n_{js} \qquad \forall j,s : \pi_{js} \ge 1 \]</div>
+          </div>
+          <p class="eq-explain">The headcount requirement now counts only people <em>designated</em> to cover skill <span class="eq-math">\(s\)</span> &mdash; not everyone merely qualified for it.</p>
+        </div>
+
+        <div class="eq-block">
+          <div class="eq-row">
+            <span class="eq-num">(7)</span>
+            <div class="eq-math">\[ y_{ijs} \;\le\; x_{ij} \qquad \forall j,s,\ i \in Q_{js} \cap E_j \]</div>
+          </div>
+          <p class="eq-explain">You can only be designated to cover a skill on a project you're actually assigned to &mdash; <span class="eq-math">\(y\)</span> links back to <span class="eq-math">\(x\)</span>.</p>
+        </div>
+
+        <div class="eq-block">
+          <div class="eq-row">
+            <span class="eq-num">(8)</span>
+            <div class="eq-math">\[ \sum_{s:\, i \in Q_{js}} y_{ijs} \;\le\; \kappa \qquad \forall j,\ i \in E_j \]</div>
+          </div>
+          <p class="eq-explain">No one person may own more than <span class="eq-math">\(\kappa\)</span> skill areas on a single project &mdash; the actual cap on skill-load.</p>
+        </div>
+
+        <p>where <span class="eq-math">\(\kappa\)</span> is the maximum number of skill areas one person may own on a single project. This pattern &mdash; an explicit &ldquo;who covers what&rdquo; layer under the assignment layer &mdash; recurs whenever coverage must be attributed rather than merely counted.</p>
+
+        <div class="remark-box">
+          <div class="remark-label">Remark &middot; When Variant 1 suffices</div>
+          <p>Use Variant&nbsp;1 for annual or quarterly portfolio staffing where projects are long-lived relative to the planning cycle, workloads are roughly uniform, and the interesting decision is team <em>composition</em>, not scheduling.</p>
+        </div>
+
+        <p class="fine-print">Presented above as a refinement of Variant 1's constraint (2). In the demo it's wired into <strong>Variant 3</strong> instead: toggle it on there to replace &ldquo;count everyone qualified&rdquo; with an exact solve of who covers what (eqs. 6&ndash;8), capped at &kappa; skills per person per project &mdash; watch the optimal plan change once a versatile generalist can no longer single-handedly satisfy two coverage rows at once.</p>
+
+        <a class="try-live" href="index.html?mode=soft&amp;skillLoad=1">&rarr; Open Variant 3 with skill-load control enabled</a>
+      </section>
+
+      <section id="variant3" class="paper-section">
+        <div class="paper-tag">Variant 3</div>
+        <h2>Soft Coverage, Project Selection, and Penalties</h2>
+        <p>Variant 1 presumes every project must be staffed and can be. In practice demand exceeds supply: the model should <em>choose</em> which optional projects to run, fully staff the mandatory ones, and degrade gracefully &mdash; reporting <em>where</em> coverage falls short rather than returning infeasible.</p>
+
+        <div class="decision-var-group">
+          <div class="decision-var">
+            <span class="eq-math">\(w_j \in \{0,1\}\)</span>
+            <span class="decision-var-label">project <em>j</em> is selected (staffed at all)</span>
+          </div>
+          <div class="decision-var">
+            <span class="eq-math">\(u_{js} \ge 0\)</span>
+            <span class="decision-var-label">shortfall in coverage of skill <em>s</em> on project <em>j</em></span>
+          </div>
+        </div>
+
+        <div class="lp-overview">
+          <div class="lp-line">\[ \operatorname*{maximize} \quad \sum_j v_j w_j \;+\; \alpha \sum_{i,j} f_{ij} x_{ij} \;+\; \beta \sum_{i,j} p_{ij} x_{ij} \;-\; \gamma \sum_{i,j} c_{ij} x_{ij} \;-\; \sum_{j,s} \phi_{js}\, u_{js} \]</div>
+          <div class="lp-st">s.t.</div>
+          <div class="lp-line">\[ \sum_{i \in Q_{js}\cap E_j} x_{ij} \;\ge\; n_{js}\,w_j \;-\; u_{js} \quad \forall j,s:\pi_{js}\ge1 \]</div>
+          <div class="lp-line">\[ u_{js} \;\le\; \overline{u}_{js} \quad \forall j,s \]</div>
+          <div class="lp-line">\[ x_{ij} \;\le\; w_j \quad \forall j, i\in E_j \]</div>
+          <div class="lp-line">\[ \underline{N}_j w_j \;\le\; \sum_{i\in E_j} x_{ij} \;\le\; \overline{N}_j w_j \quad \forall j \]</div>
+          <div class="lp-line">\[ w_j = 1 \quad \forall j \in J^{\mathrm{man}} \]</div>
+          <div class="lp-line">\[ x_{ij}, w_j \in \{0,1\}, \quad u_{js} \ge 0 \]</div>
+        </div>
+
+        <p class="section-lead">Reading it row by row:</p>
+
+        <div class="eq-block">
+          <div class="eq-row">
+            <span class="eq-num">soft coverage</span>
+            <div class="eq-math">\[ \sum_{i \in Q_{js}\cap E_j} x_{ij} \;\ge\; n_{js}\,w_j \;-\; u_{js} \qquad \forall j,s:\pi_{js}\ge1 \]</div>
+          </div>
+          <p class="eq-explain">Same shape as (2), but a shortfall term <span class="eq-math">\(u_{js}\)</span> can absorb any gap &mdash; converting a hard row into a <em>priced</em> one.</p>
+        </div>
+
+        <div class="eq-block">
+          <div class="eq-row">
+            <span class="eq-num">slack cap</span>
+            <div class="eq-math">\[ u_{js} \;\le\; \overline{u}_{js} \qquad \forall j,s \]</div>
+          </div>
+          <p class="eq-explain">Prevents the absurd solution of &ldquo;staffing&rdquo; a selected project entirely with slack &mdash; e.g. <span class="eq-math">\(\overline{u}_{js}=n_{js}-1\)</span> forces at least one qualified person on every required skill of a selected project.</p>
+        </div>
+
+        <div class="eq-block">
+          <div class="eq-row">
+            <span class="eq-num">membership</span>
+            <div class="eq-math">\[ x_{ij} \;\le\; w_j \qquad \forall j,\ i\in E_j \]</div>
+          </div>
+          <p class="eq-explain">An unselected project (<span class="eq-math">\(w_j=0\)</span>) absorbs no people and forfeits its value <span class="eq-math">\(v_j\)</span>.</p>
+        </div>
+
+        <div class="eq-block">
+          <div class="eq-row">
+            <span class="eq-num">team size</span>
+            <div class="eq-math">\[ \underline{N}_j w_j \;\le\; \sum_{i\in E_j} x_{ij} \;\le\; \overline{N}_j w_j \qquad \forall j \]</div>
+          </div>
+          <p class="eq-explain">Same size bounds as (3), scaled by <span class="eq-math">\(w_j\)</span> so an unselected project needs zero people instead of the usual minimum.</p>
+        </div>
+
+        <div class="eq-block">
+          <div class="eq-row">
+            <span class="eq-num">mandatory</span>
+            <div class="eq-math">\[ w_j = 1 \qquad \forall j \in J^{\mathrm{man}} \]</div>
+          </div>
+          <p class="eq-explain">Fixes selection for projects that must run regardless &mdash; concurrency (4) and budget (5) still apply unchanged.</p>
+        </div>
+
+        <div class="annot-grid">
+          <div class="annot-card">
+            <div class="annot-title">Selection</div>
+            <p>The model performs portfolio triage and staffing <em>jointly</em>, which beats the common two-phase practice of picking projects first and discovering they can't be staffed.</p>
+          </div>
+          <div class="annot-card">
+            <div class="annot-title">Tiered penalties</div>
+            <p><span class="eq-math">\(\phi_{js}\)</span> should be tiered: very high for mission-critical skills (effectively hard), moderate for nice-to-have depth.</p>
+          </div>
+          <div class="annot-card">
+            <div class="annot-title">Mandatory ties back to hard coverage</div>
+            <p>Fixing <span class="eq-math">\(\overline{u}_{js}=0\)</span> for <span class="eq-math">\(j \in J^{\mathrm{man}}\)</span> recovers exact hard coverage for that project.</p>
+          </div>
+          <div class="annot-card">
+            <div class="annot-title">Diagnosis</div>
+            <p>At optimum, positive <span class="eq-math">\(u_{js}\)</span> are exactly the hiring/training gaps &mdash; a ranked shopping list for recruitment, priced at <span class="eq-math">\(\phi_{js}\)</span> per unit.</p>
+          </div>
+        </div>
+
+        <a class="try-live" href="index.html?mode=soft">&rarr; Open this exact model in the interactive demo (Soft coverage)</a>
+      </section>
+
+    </main>
+  </div>
+
+  <footer class="foot">Formulation excerpted from <em>Person-to-Project Assignment as a Mixed-Integer Linear Program: A Progressive Family of Formulations</em> &mdash; sections 3.2, 3.3, and 5.</footer>
+</div>
+
+<script src="vendor/katex/katex.min.js"></script>
+<script src="vendor/katex/auto-render.min.js"></script>
+<script src="formulation.js"></script>
+</body>
+</html>

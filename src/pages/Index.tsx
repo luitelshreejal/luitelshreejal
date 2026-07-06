@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import profileImg from "@/assets/profile.png";
 import { Youtube, Linkedin } from "lucide-react";
 
@@ -62,6 +63,40 @@ const works = [
   },
 ];
 
+/* Reveals children with a soft rise once they scroll into view. */
+const Reveal = ({
+  children,
+  className = "",
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) => {
+  const ref = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.15, rootMargin: "0px 0px -40px 0px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div ref={ref} className={`reveal ${visible ? "is-visible" : ""} ${className}`}>
+      {children}
+    </div>
+  );
+};
+
 const Section = ({
   title,
   children,
@@ -69,42 +104,58 @@ const Section = ({
   title: string;
   children: React.ReactNode;
 }) => (
-  <section className="mb-14">
-    <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground mb-5">{title}</h2>
-    {children}
-  </section>
+  <Reveal>
+    <section className="mb-16">
+      <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground mb-6">{title}</h2>
+      {children}
+    </section>
+  </Reveal>
+);
+
+const Divider = () => (
+  <Reveal>
+    <div className="h-px bg-border mb-16" />
+  </Reveal>
 );
 
 const Index = () => {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="mx-auto max-w-xl px-6 py-20 md:py-32">
-        {/* Profile */}
-        <div className="flex flex-col items-center text-center mb-14">
+        {/* Profile — staggered rise on load */}
+        <div className="flex flex-col items-center text-center mb-16">
           <img
             src={profileImg}
             alt="Shreejal Luitel"
             width={120}
             height={120}
-            className="rounded-full object-cover mb-6 border border-border"
+            className="animate-rise rounded-full object-cover mb-6 border border-border"
           />
-          <h1 className="text-2xl font-semibold tracking-tight mb-2">
+          <h1
+            className="animate-rise text-3xl font-semibold tracking-tight mb-3"
+            style={{ animationDelay: "0.12s" }}
+          >
             Shreejal Luitel
           </h1>
-          <p className="text-muted-foreground text-sm leading-relaxed max-w-sm">
+          <p
+            className="animate-rise text-muted-foreground text-sm leading-relaxed max-w-sm"
+            style={{ animationDelay: "0.24s" }}
+          >
             I work at the intersection of regulatory science, AI, and drug development. I am currently in Global Regulatory Sciences at Pfizer, focused on rare disease programs.
           </p>
           <a
             href="https://linkedin.com/in/shreejal-luitel"
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-4 text-muted-foreground hover:text-foreground transition-colors"
+            className="animate-rise mt-5 text-muted-foreground hover:text-foreground transition-colors"
+            style={{ animationDelay: "0.36s" }}
+            aria-label="LinkedIn"
           >
             <Linkedin className="w-4 h-4" />
           </a>
         </div>
 
-        <div className="h-px bg-border mb-14" />
+        <Divider />
 
         {/* Experience */}
         <Section title="Experience">
@@ -139,12 +190,12 @@ const Index = () => {
           </div>
         </Section>
 
-        <div className="h-px bg-border mb-14" />
+        <Divider />
 
         {/* Education */}
         <Section title="Education">
           <div className="space-y-4">
-            {education.map((edu, i) => (  
+            {education.map((edu, i) => (
               <div key={i}>
                 <p className="text-sm font-medium">{edu.degree}</p>
                 <p className="text-xs text-muted-foreground">{edu.school}</p>
@@ -154,7 +205,7 @@ const Index = () => {
           </div>
         </Section>
 
-        <div className="h-px bg-border mb-14" />
+        <Divider />
 
         {/* Volunteering */}
         <Section title="Community">
@@ -169,7 +220,7 @@ const Index = () => {
           </div>
         </Section>
 
-        <div className="h-px bg-border mb-14" />
+        <Divider />
 
         {/* Work */}
         <Section title="Selected Links">

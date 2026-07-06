@@ -1,0 +1,678 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage[colorlinks=true, linkcolor=blue, urlcolor=blue]{hyperref}
+\usepackage{longtable}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\B}{\{0,1\}}
+\DeclareMathOperator*{\maximize}{maximize}
+\DeclareMathOperator*{\minimize}{minimize}
+
+\theoremstyle{remark}
+\newtheorem{remark}{Remark}[section]
+
+\title{Person-to-Project Assignment as a Mixed-Integer Linear Program:\\
+A Progressive Family of Formulations}
+\author{}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We formulate the problem of assigning people to projects as a mixed-integer
+linear program (MILP). Rather than a single monolithic model, we develop a
+\emph{progression of variants}: a static binary assignment model with hard
+skill-coverage constraints (Variant~1); a time- and role-indexed model with
+continuous hour allocations (Variant~2); and a model with soft coverage,
+project selection, and shortfall penalties (Variant~3). We then present
+cross-cutting constraint modules --- pairwise compatibility, team composition
+and diversity, fairness, development goals, location --- that can be attached
+to any variant, and close with a discussion of multi-objective design and
+computational considerations.
+\end{abstract}
+
+\tableofcontents
+
+%=====================================================================
+\section{Problem Statement}
+%=====================================================================
+
+An organization must staff a portfolio of projects from a pool of people.
+Each project demands certain skills at minimum proficiency levels, a
+headcount per role, and effort over a planning horizon; it carries a
+strategic value, a budget, and a timeline. Each person has skill
+proficiencies, limited capacity, a cost rate, a seniority level,
+preferences over projects, and a bound on concurrent engagements.
+The planner must decide \emph{who works on what} (and, in richer variants,
+\emph{in which role, in which period, for how many hours}) so that every
+project's requirements are \emph{covered}, while trading off skill fit,
+preference satisfaction, cost, and strategic value.
+
+The defining structural feature is the \textbf{coverage constraint}: a
+project's required skill set must be covered by the \emph{union} of the
+skills of its assigned team, not by any single person. This makes the
+problem a generalization of set covering intertwined with a generalized
+assignment problem, and it is NP-hard in general.
+
+%=====================================================================
+\section{Notation}
+%=====================================================================
+
+\subsection{Sets and indices}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Symbol & Meaning \\
+\midrule
+$i \in I$ & people \\
+$j \in J$ & projects \\
+$s \in S$ & skills \\
+$r \in R$ & roles (e.g.\ lead, contributor, reviewer) \\
+$t \in T$ & time periods (weeks, sprints, months) \\
+$d \in D$ & teams / departments; $I_d \subseteq I$ is the set of people in $d$ \\
+$l \in L$ & seniority levels (ordered) \\
+$J^{\mathrm{man}} \subseteq J$ & mandatory (must-staff) projects \\
+$T_j \subseteq T$ & active periods of project $j$ (from $\mathit{start}_j$ to $\mathit{end}_j$) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Person parameters}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Symbol & Meaning \\
+\midrule
+$\mathit{prof}_{is} \in \{0,\dots,5\}$ & proficiency of person $i$ in skill $s$ \\
+$\mathit{cap}_{it} \ge 0$ & available hours (or FTE fraction) of $i$ in period $t$ \\
+$c_i \ge 0$ & cost rate of $i$ (per hour) \\
+$\mathit{lev}_i \in L$ & seniority level of $i$ \\
+$\mathit{tz}_i$ & time zone / location of $i$ \\
+$p_{ij} \in \R$ & preference (interest) score of $i$ for project $j$ \\
+$\mathit{cert}_{ik} \in \B$ & person $i$ holds certification/clearance $k$ \\
+$\overline{n}_i \in \mathbb{Z}_{+}$ & max number of concurrent projects for $i$ \\
+$g_{is} \in \B$ & $i$ wants to \emph{grow} skill $s$ (development goal) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Existing commitments are folded into $\mathit{cap}_{it}$ (capacity net of
+prior obligations). Language proficiency and domain/client experience are
+treated as additional ``skills'' in $S$, which keeps the model uniform.
+
+\subsection{Project parameters}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Symbol & Meaning \\
+\midrule
+$\pi_{js} \in \{0,\dots,5\}$ & minimum proficiency in skill $s$ required by $j$ ($0$ = not needed) \\
+$n_{js} \in \mathbb{Z}_{+}$ & number of assigned people who must meet skill $s$ (coverage depth) \\
+$\delta_{jr} \in \mathbb{Z}_{+}$ & required headcount in role $r$ on project $j$ \\
+$e_{jt} \ge 0$ & effort (hours) needed by $j$ in period $t$ \\
+$v_j \ge 0$ & strategic value / priority of $j$ \\
+$B_j \ge 0$ & budget cap of $j$ \\
+$\underline{N}_j, \overline{N}_j$ & min / max team size of $j$ \\
+$\lambda_j \in L$ & minimum seniority required for the lead role on $j$ \\
+$\mathit{creq}_{jk} \in \B$ & project $j$ requires certification/clearance $k$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Relational parameters}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Symbol & Meaning \\
+\midrule
+$f_{ij} \in \R$ & skill-fit score of person $i$ for project $j$ (precomputed) \\
+$P^{-} \subseteq I \times I$ & pairs who \emph{cannot} work together \\
+$P^{+} \subseteq I \times I$ & pairs who \emph{must} work together (if either is assigned) \\
+$\sigma_{i i'} \in \R$ & synergy score for pairing $i$ and $i'$ (e.g.\ prior collaboration) \\
+$\rho_d \in (0,1]$ & max fraction of any team drawn from department $d$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{remark}[Derived eligibility sets]
+\label{rem:eligibility}
+Much of the combinatorics is best handled by \emph{preprocessing}. Define
+\begin{align*}
+Q_{js} &= \{\, i \in I : \mathit{prof}_{is} \ge \pi_{js} \,\}
+  && \text{(people qualified for skill $s$ on project $j$),} \\
+E_j &= \{\, i \in I : \mathit{cert}_{ik} \ge \mathit{creq}_{jk}\ \forall k,
+      \ \text{location/tz compatible with } j \,\}
+  && \text{(people eligible for project $j$).}
+\end{align*}
+Variables are only created for $(i,j)$ with $i \in E_j$; ineligible
+assignments are never instantiated. This is both a correctness device and
+the single most effective way to keep instances small.
+\end{remark}
+
+%=====================================================================
+\section{Variant 1: Static Assignment with Hard Coverage}
+%=====================================================================
+
+The base model answers one question: \emph{which people staff which
+projects?} Time, roles, and hours are aggregated away; each project $j$
+exposes an estimated per-person workload $w_j$ (hours over its lifetime),
+so the cost of assigning $i$ to $j$ is $c_{ij} = c_i \, w_j$.
+
+\subsection{Decision variables}
+\begin{align*}
+x_{ij} &\in \B && \text{person $i$ is assigned to project $j$}
+  \quad (i \in E_j).
+\end{align*}
+
+\subsection{Formulation}
+
+\begin{align}
+\maximize_{x} \quad
+  & \alpha \sum_{j \in J} \sum_{i \in E_j} f_{ij}\, x_{ij}
+  \;+\; \beta \sum_{j \in J} \sum_{i \in E_j} p_{ij}\, x_{ij}
+  \;-\; \gamma \sum_{j \in J} \sum_{i \in E_j} c_{ij}\, x_{ij}
+  \label{eq:v1-obj} \\[4pt]
+\text{s.t.} \quad
+  & \sum_{i \in Q_{js} \cap E_j} x_{ij} \;\ge\; n_{js}
+  && \forall j \in J,\ s \in S:\ \pi_{js} \ge 1
+  \label{eq:v1-cover} \\
+  & \underline{N}_j \;\le\; \sum_{i \in E_j} x_{ij} \;\le\; \overline{N}_j
+  && \forall j \in J
+  \label{eq:v1-teamsize} \\
+  & \sum_{j:\, i \in E_j} x_{ij} \;\le\; \overline{n}_i
+  && \forall i \in I
+  \label{eq:v1-concurrency} \\
+  & \sum_{i \in E_j} c_{ij}\, x_{ij} \;\le\; B_j
+  && \forall j \in J
+  \label{eq:v1-budget} \\
+  & x_{ij} \in \B
+  && \forall j \in J,\ i \in E_j. \nonumber
+\end{align}
+
+Constraint \eqref{eq:v1-cover} is the \textbf{skill-coverage} constraint:
+for every skill $s$ that project $j$ requires, at least $n_{js}$ of the
+assigned people must be qualified in $s$ (the common case is
+$n_{js} = 1$; setting $n_{js} = 2$ buys redundancy for critical skills).
+Constraint \eqref{eq:v1-teamsize} bounds team size,
+\eqref{eq:v1-concurrency} caps each person's concurrent engagements, and
+\eqref{eq:v1-budget} enforces project budgets.
+
+\subsection{Explicit coverage variables (skill-load control)}
+\label{sec:v1-explicit}
+
+Formulation \eqref{eq:v1-cover} lets a single versatile person
+``count'' toward every skill simultaneously, which may be unrealistic: one
+person cannot in practice \emph{own} five skill areas on one project. To
+cap the number of skill requirements a person may cover, introduce
+\begin{align*}
+y_{ijs} \in \B \quad \text{: person $i$ is designated to cover skill $s$
+on project $j$} \quad (i \in Q_{js} \cap E_j),
+\end{align*}
+and replace \eqref{eq:v1-cover} with
+\begin{align}
+\sum_{i \in Q_{js} \cap E_j} y_{ijs} &\;\ge\; n_{js}
+  && \forall j,\ s:\ \pi_{js} \ge 1
+  \label{eq:v1b-cover} \\
+y_{ijs} &\;\le\; x_{ij}
+  && \forall j,\ s,\ i \in Q_{js} \cap E_j
+  \label{eq:v1b-link} \\
+\sum_{s:\, i \in Q_{js}} y_{ijs} &\;\le\; \kappa
+  && \forall j,\ i \in E_j,
+  \label{eq:v1b-load}
+\end{align}
+where $\kappa$ is the maximum number of skill areas one person may own on a
+single project. This pattern --- an explicit ``who covers what'' layer under
+the assignment layer --- recurs whenever coverage must be attributed rather
+than merely counted.
+
+\begin{remark}[When Variant 1 suffices]
+Use Variant~1 for annual or quarterly portfolio staffing where projects are
+long-lived relative to the planning cycle, workloads are roughly uniform,
+and the interesting decision is team \emph{composition}, not scheduling.
+\end{remark}
+
+%=====================================================================
+\section{Variant 2: Time- and Role-Indexed Allocation}
+%=====================================================================
+
+When projects have effort profiles over time, people have fluctuating
+availability, and roles matter (a project needs \emph{a lead} and
+\emph{two contributors}, not just three bodies), the assignment must be
+indexed by role and period, and hours become a continuous decision.
+
+\subsection{Decision variables}
+\begin{align*}
+x_{ijrt} &\in \B
+  && \text{person $i$ works on project $j$ in role $r$ during period $t$}
+  \quad (i \in E_j,\ t \in T_j), \\
+h_{ijt} &\ge 0
+  && \text{hours of person $i$ allocated to project $j$ in period $t$}, \\
+a_{ijt} &\in \B
+  && \text{person $i$ is active on project $j$ in period $t$
+      (aggregation of roles)}, \\
+z_{ij} &\in \B
+  && \text{person $i$ is \emph{ever} assigned to project $j$
+      (membership indicator)}.
+\end{align*}
+The auxiliary variables $a_{ijt}$ and $z_{ij}$ are defined by linear
+linking constraints below; they let concurrency, coverage, and continuity
+be stated cleanly.
+
+\subsection{Formulation}
+
+\begin{align}
+\maximize \quad
+  & \alpha \sum_{i,j} f_{ij}\, z_{ij}
+  \;+\; \beta \sum_{i,j} p_{ij}\, z_{ij}
+  \;-\; \gamma \sum_{i,j,t} c_i\, h_{ijt}
+  \;-\; \mu \sum_{i,j} z_{ij}
+  \label{eq:v2-obj} \\[4pt]
+\text{s.t.}\quad
+% role structure
+  & \sum_{r \in R} x_{ijrt} \;=\; a_{ijt}
+  && \forall i,\ j,\ t \in T_j
+  \label{eq:v2-onerole} \\
+  & a_{ijt} \;\le\; z_{ij}
+  && \forall i,\ j,\ t \in T_j
+  \label{eq:v2-membership} \\
+% role coverage
+  & \sum_{i \in E_j} x_{ijrt} \;\ge\; \delta_{jr}
+  && \forall j,\ r,\ t \in T_j
+  \label{eq:v2-rolecover} \\
+% skill coverage each period
+  & \sum_{i \in Q_{js} \cap E_j} a_{ijt} \;\ge\; n_{js}
+  && \forall j,\ s:\ \pi_{js}\ge 1,\ t \in T_j
+  \label{eq:v2-skillcover} \\
+% seniority mix
+  & \sum_{i:\, \mathit{lev}_i \ge \lambda_j} x_{ij,\mathrm{lead},t} \;\ge\; 1
+  && \forall j,\ t \in T_j
+  \label{eq:v2-seniority} \\
+% hours vs assignment
+  & h_{ijt} \;\le\; \mathit{cap}_{it}\; a_{ijt}
+  && \forall i,\ j,\ t \in T_j
+  \label{eq:v2-hours-ub} \\
+  & h_{ijt} \;\ge\; \underline{h}\; a_{ijt}
+  && \forall i,\ j,\ t \in T_j
+  \label{eq:v2-hours-lb} \\
+% capacity
+  & \sum_{j:\, t \in T_j} h_{ijt} \;\le\; \mathit{cap}_{it}
+  && \forall i,\ t
+  \label{eq:v2-capacity} \\
+% effort demand
+  & \sum_{i \in E_j} h_{ijt} \;\ge\; e_{jt}
+  && \forall j,\ t \in T_j
+  \label{eq:v2-effort} \\
+% concurrency per period
+  & \sum_{j:\, t \in T_j} a_{ijt} \;\le\; \overline{n}_i
+  && \forall i,\ t
+  \label{eq:v2-concurrency} \\
+% budget over lifetime
+  & \sum_{t \in T_j} \sum_{i \in E_j} c_i\, h_{ijt} \;\le\; B_j
+  && \forall j
+  \label{eq:v2-budget} \\
+  & x_{ijrt},\, a_{ijt},\, z_{ij} \in \B, \quad h_{ijt} \ge 0. \nonumber
+\end{align}
+
+\paragraph{Reading the model.}
+\eqref{eq:v2-onerole} says a person active on a project in a period holds
+exactly one role there. \eqref{eq:v2-rolecover} is per-period role coverage
+($\delta_{jr}$ can be made time-dependent $\delta_{jrt}$ if a project needs
+a reviewer only near delivery). \eqref{eq:v2-skillcover} re-imposes skill
+coverage \emph{in every active period}, so coverage cannot lapse when a
+team rotates. \eqref{eq:v2-seniority} guarantees the lead in each period is
+sufficiently senior. \eqref{eq:v2-hours-ub} links hours to assignment with
+the \emph{tight} big-M $\mathit{cap}_{it}$ (never use a generic large $M$
+here); \eqref{eq:v2-hours-lb} imposes a minimum meaningful allocation
+$\underline{h}$ (e.g.\ 4 hours/week) to forbid sliver assignments.
+The term $-\mu \sum z_{ij}$ in \eqref{eq:v2-obj} charges a small fixed cost
+per team membership, discouraging fragmented teams; $\mu$ also controls
+the classic trade-off between a few heavily-loaded generalists and many
+lightly-loaded specialists.
+
+\subsection{Continuity and churn control}
+\label{sec:continuity}
+
+Re-solving a time-indexed model can churn assignments. Two standard,
+composable devices:
+\begin{enumerate}[label=(\alph*)]
+\item \textbf{Team stability within the horizon.} Penalize onboarding events with
+  $u_{ijt} \in \B$ ($u \ge a_{ijt} - a_{ij,t-1}$) and add
+  $-\theta \sum u_{ijt}$ to the objective: each time a person \emph{joins} a
+  project mid-stream costs $\theta$.
+\item \textbf{Stability across re-solves.} Given the incumbent plan
+  $\hat{a}_{ijt}$, penalize deviations
+  $\sum_{i,j,t} \tau_{ijt} \, | a_{ijt} - \hat{a}_{ijt} |$, linearized in the
+  usual way; or hard-fix assignments inside a frozen window
+  $t \le t_{\mathrm{freeze}}$.
+\end{enumerate}
+
+\begin{remark}[When Variant 2 is worth its size]
+The variable count is $O(|I|\,|J|\,|R|\,|T|)$. Use it when effort profiles
+$e_{jt}$ genuinely vary, when part-time multi-project allocation is the norm
+(matrix organizations, consultancies), or when role hand-offs over time are
+part of the decision. If everyone works one project at a time full-time,
+Variant~1 plus a start-date heuristic is usually better value.
+\end{remark}
+
+%=====================================================================
+\section{Variant 3: Soft Coverage, Project Selection, and Penalties}
+%=====================================================================
+
+Variants 1--2 presume every project must be staffed and can be. In
+practice demand exceeds supply: the model should \emph{choose} which
+optional projects to run, fully staff the mandatory ones, and degrade
+gracefully --- reporting \emph{where} coverage falls short rather than
+returning \textsc{infeasible}.
+
+\subsection{Additional decision variables}
+\begin{align*}
+w_j &\in \B && \text{project $j$ is selected (staffed at all)}, \\
+u_{js} &\ge 0 && \text{shortfall in coverage of skill $s$ on project $j$}, \\
+q_{jt} &\ge 0 && \text{shortfall in effort on project $j$ in period $t$
+  \ (time-indexed setting)}.
+\end{align*}
+
+\subsection{Formulation (built on Variant 1; the same surgery applies to Variant 2)}
+
+\begin{align}
+\maximize \quad
+  & \sum_{j} v_j\, w_j
+  \;+\; \alpha \sum_{i,j} f_{ij}\, x_{ij}
+  \;+\; \beta \sum_{i,j} p_{ij}\, x_{ij}
+  \;-\; \gamma \sum_{i,j} c_{ij}\, x_{ij}
+  \;-\; \sum_{j,s} \phi_{js}\, u_{js}
+  \label{eq:v3-obj} \\[4pt]
+\text{s.t.}\quad
+  & \sum_{i \in Q_{js} \cap E_j} x_{ij} \;\ge\; n_{js}\, w_j \;-\; u_{js}
+  && \forall j,\ s:\ \pi_{js} \ge 1
+  \label{eq:v3-softcover} \\
+  & u_{js} \;\le\; \overline{u}_{js}
+  && \forall j,\ s
+  \label{eq:v3-slackcap} \\
+  & x_{ij} \;\le\; w_j
+  && \forall j,\ i \in E_j
+  \label{eq:v3-link} \\
+  & \underline{N}_j\, w_j \;\le\; \sum_{i \in E_j} x_{ij}
+    \;\le\; \overline{N}_j\, w_j
+  && \forall j
+  \label{eq:v3-teamsize} \\
+  & w_j \;=\; 1
+  && \forall j \in J^{\mathrm{man}}
+  \label{eq:v3-mandatory} \\
+  & \text{\eqref{eq:v1-concurrency}, \eqref{eq:v1-budget}},
+  \quad x_{ij},\, w_j \in \B,\quad u_{js} \ge 0. \nonumber
+\end{align}
+
+\paragraph{Design notes.}
+\begin{itemize}
+\item \textbf{Selection.} An unselected project ($w_j = 0$) absorbs no
+  people, by \eqref{eq:v3-link} and \eqref{eq:v3-teamsize}, and forfeits its
+  value $v_j$. The model thus performs portfolio triage and staffing
+  \emph{jointly}, which dominates the common two-phase practice of first
+  picking projects and then discovering they cannot be staffed.
+\item \textbf{Soft coverage.} The slack $u_{js}$ converts a hard coverage
+  row into a priced one. Penalties should be \emph{tiered}:
+  $\phi_{js} \gg \max_j v_j$ for mission-critical skills (effectively hard),
+  moderate for nice-to-have depth. The cap \eqref{eq:v3-slackcap} prevents
+  the absurd solution of ``staffing'' a selected project entirely with slack
+  --- e.g.\ $\overline{u}_{js} = n_{js} - 1$ forces at least one qualified
+  person on every required skill of a selected project.
+\item \textbf{Mandatory projects} keep hard coverage simply by fixing
+  $\overline{u}_{js} = 0$ for $j \in J^{\mathrm{man}}$.
+\item \textbf{Diagnosis.} At optimum, the positive $u_{js}$ are exactly the
+  hiring/training gaps: read them as a ranked shopping list for
+  recruitment, with shadow value $\phi_{js}$ per unit.
+\end{itemize}
+
+In the time-indexed setting the same treatment applies to effort:
+replace \eqref{eq:v2-effort} by
+$\sum_i h_{ijt} \ge e_{jt}\, w_j - q_{jt}$ with penalty
+$\sum_{j,t} \psi_j\, q_{jt}$, capturing schedule slippage rather than
+skill gaps.
+
+%=====================================================================
+\section{Cross-Cutting Constraint Modules}
+%=====================================================================
+
+The following modules attach to any variant. Throughout, read $x_{ij}$ as
+$z_{ij}$ in the time-indexed setting.
+
+\subsection{Pairwise compatibility}
+\begin{align}
+x_{ij} + x_{i'j} &\;\le\; 1
+  && \forall (i,i') \in P^{-},\ \forall j
+  \label{eq:cannot} \\
+x_{ij} &\;=\; x_{i'j}
+  && \forall (i,i') \in P^{+},\ \forall j.
+  \label{eq:must}
+\end{align}
+Constraint \eqref{eq:cannot} covers interpersonal conflicts and
+manager--report separation (instantiate $P^{-}$ from the org chart when
+policy forbids a manager reviewing their own report's project work). The
+must-pair constraint \eqref{eq:must} is strong (both or neither); the
+weaker ``if $i$ then $i'$'' is $x_{ij} \le x_{i'j}$, useful for
+apprentice--mentor pairings.
+
+\subsection{Synergy bonuses (linearized products)}
+To \emph{reward} (not require) putting a productive pair together, add
+$w_{i i' j} \in [0,1]$ with the McCormick equalities for a product of
+binaries:
+\begin{align}
+w_{i i' j} \le x_{ij}, \qquad
+w_{i i' j} \le x_{i'j}, \qquad
+w_{i i' j} \ge x_{ij} + x_{i'j} - 1,
+\label{eq:mccormick}
+\end{align}
+and the objective term $+\sum \sigma_{i i'}\, w_{i i' j}$. With
+$\sigma_{i i'} > 0$ the first two inequalities suffice (the maximization
+pushes $w$ up); include the third only for negative synergies. Instantiate
+these variables \emph{sparsely} --- only for pairs with
+$|\sigma_{i i'}|$ above a threshold --- or the model inflates
+quadratically.
+
+\subsection{Team composition and diversity}
+A ratio cap ``no more than a fraction $\rho_d$ of any team from department
+$d$'' looks nonlinear (team size is a variable) but linearizes exactly:
+\begin{align}
+\sum_{i \in I_d \cap E_j} x_{ij}
+  \;\le\; \rho_d \sum_{i \in E_j} x_{ij}
+  && \forall j,\ d.
+  \label{eq:diversity}
+\end{align}
+Floors ($\ge$) work symmetrically, e.g.\ representation targets across
+departments or sites. A minimum seniority \emph{mix} beyond the lead rule
+is the same pattern with $I_d$ replaced by $\{i : \mathit{lev}_i \ge l\}$.
+
+\subsection{Location and time-zone overlap}
+Discretize into zone clusters $Z$, let $I_z$ be people in cluster $z$, and
+require a quorum in a core cluster $z^{*}_j$ chosen per project:
+\begin{align}
+\sum_{i \in I_{z^{*}_j} \cap E_j} x_{ij}
+  \;\ge\; \eta_j \sum_{i \in E_j} x_{ij},
+\end{align}
+i.e.\ at least a fraction $\eta_j$ of the team shares core working hours.
+Hard on-site requirements are handled upstream via the eligibility sets
+$E_j$ (Remark~\ref{rem:eligibility}), not as constraints.
+
+\subsection{Fairness of load}
+Unconstrained cost minimization concentrates work on the cheapest capable
+people. Two remedies:
+\begin{enumerate}[label=(\alph*)]
+\item \textbf{Min--max utilization.} With utilization
+  $\mathit{util}_i = \sum_{j,t} h_{ijt} \big/ \sum_t \mathit{cap}_{it}$,
+  add $\Lambda \ge \mathit{util}_i \ \forall i$ and the term
+  $-\omega \Lambda$ to the objective.
+\item \textbf{Balanced project counts.} Bound the spread:
+  $\underline{\nu} \le \sum_j x_{ij} \le \overline{\nu}$ for all $i$ in a
+  designated pool (everyone gets between $\underline{\nu}$ and
+  $\overline{\nu}$ assignments).
+\end{enumerate}
+
+\subsection{Development goals (stretch assignments)}
+Growth is exposure to a desired skill \emph{without} being counted on for
+coverage. Let $G_{js} \subseteq I$ be people with $g_{is} = 1$ who are
+\emph{near}-qualified ($\mathit{prof}_{is} = \pi_{js} - 1$). Introduce
+$y^{g}_{ijs} \in \B$ (a stretch slot) with
+\begin{align}
+y^{g}_{ijs} \;\le\; x_{ij}, \qquad
+\sum_{s} y^{g}_{ijs} \;\le\; 1, \qquad
+\sum_{i \in G_{js}} y^{g}_{ijs} \;\le\; 1
+  \quad \forall j, s,
+\end{align}
+and the objective bonus $+\epsilon \sum y^{g}_{ijs}$. Crucially,
+$y^{g}$ does \emph{not} appear in the coverage constraints: the stretch
+person shadows a qualified one (who is still required by
+\eqref{eq:v1-cover}). If desired, couple them:
+$y^{g}_{ijs} \le \sum_{i' \in Q_{js}} y_{i'js}$ using the explicit coverage
+variables of Section~\ref{sec:v1-explicit}, so a stretch slot exists only
+where a qualified owner does.
+
+%=====================================================================
+\section{Objective Design and Multi-Objective Trade-offs}
+%=====================================================================
+
+The criteria in play --- skill fit, preference satisfaction, cost,
+strategic value covered, plus soft penalties --- are incommensurable. The
+formulations above use a \textbf{weighted sum}
+\begin{align}
+\maximize\quad
+  \alpha\, \mathrm{Fit} + \beta\, \mathrm{Pref}
+  + \sum_j v_j w_j - \gamma\, \mathrm{Cost}
+  - \textstyle\sum \phi\, u - \textstyle\sum \psi\, q - \dots
+\label{eq:weighted}
+\end{align}
+which is the practical default, but the weights deserve care.
+
+\subsection{Normalization}
+Raw scales differ wildly (fit scores in $[0,1]$, costs in the
+$10^{5}$--$10^{6}$ range), so raw weights are meaningless. Normalize each
+term by its \emph{ideal value}: solve the single-objective problem
+$\max \mathrm{Fit}$ to get $\mathrm{Fit}^{*}$, likewise
+$\mathrm{Cost}^{*} = \min \mathrm{Cost}$ over feasible staffings, then
+optimize
+\begin{align}
+\alpha\, \frac{\mathrm{Fit}}{\mathrm{Fit}^{*}}
+- \gamma\, \frac{\mathrm{Cost}}{\mathrm{Cost}^{*}} + \dots
+\end{align}
+so that $\alpha, \gamma$ express genuine relative importance. Each ideal
+value costs one auxiliary MILP solve --- cheap, and reusable across
+weight settings.
+
+\subsection{Lexicographic (preemptive) ordering}
+When priorities are strict --- e.g.\ (1) staff all mandatory projects with
+zero coverage shortfall, (2) maximize strategic value of optional projects,
+(3) minimize cost, (4) maximize preferences --- solve a sequence of MILPs:
+optimize objective 1; add the constraint
+$\text{obj}_1 \ge (1 - \varepsilon)\, \text{obj}_1^{*}$; optimize
+objective 2 over the restricted set; and so on. The tolerance
+$\varepsilon$ (e.g.\ 1\%) trades a sliver of a higher priority for
+substantial freedom in lower ones and markedly better solutions in
+practice than $\varepsilon = 0$.
+
+\subsection{$\varepsilon$-constraint method}
+Keep one objective, bound the rest:
+\begin{align}
+\maximize \ \mathrm{Fit} \quad \text{s.t.} \quad
+\mathrm{Cost} \le \overline{C}, \qquad
+\sum_j v_j w_j \ge \underline{V},
+\end{align}
+then sweep $\overline{C}$ (and/or $\underline{V}$) to trace the Pareto
+frontier. This is the method of choice for \emph{presenting} the trade-off
+to decision-makers: ``every additional \$50k of staffing budget buys this
+much fit'' is a curve, not a weight.
+
+\subsection{Goal programming}
+When stakeholders state targets (``average utilization near 80\%,''
+``preference score at least 0.7 per person''), attach deviation variables
+to each goal, $\mathrm{goal}_k - d^{+}_k + d^{-}_k = \mathrm{target}_k$,
+and minimize the weighted sum of the undesirable deviations. This
+subsumes the soft-coverage device of Variant~3, and it is the honest
+formulation when management thinks in targets rather than trade-off rates.
+
+\subsection{Which to use}
+Weighted sum for routine automated runs (fast, single solve); lexicographic
+when governance imposes a strict priority order; $\varepsilon$-constraint
+for stakeholder-facing what-if analysis; goal programming when the input
+arrives as targets. They can be mixed: lexicographic at the top (mandatory
+coverage first), weighted sum within the final level.
+
+%=====================================================================
+\section{Computational Considerations}
+%=====================================================================
+
+\begin{itemize}
+\item \textbf{Scale.} Variant 1 has $O(|I|\,|J|)$ binaries --- typically
+  thousands, easy for modern solvers. Variant 2 has
+  $O(|I|\,|J|\,|R|\,|T|)$; at $200$ people $\times$ $40$ projects $\times$
+  $3$ roles $\times$ $26$ weeks this is $\sim\!6 \times 10^{5}$ binaries,
+  demanding but tractable \emph{if} eligibility preprocessing
+  (Remark~\ref{rem:eligibility}) prunes the majority of $(i,j)$ pairs, as
+  it usually does.
+\item \textbf{Tight big-Ms.} The only big-M in the family is
+  \eqref{eq:v2-hours-ub}, and $\mathit{cap}_{it}$ is its tightest possible
+  value. Resist the generic $M = 10^{6}$; the LP relaxation gap it opens is
+  the difference between minutes and hours of solve time.
+\item \textbf{Symmetry.} Interchangeable people (identical skills, cost,
+  availability) create symmetric solutions that bloat the branch-and-bound
+  tree. Either aggregate them into pools with integer ``count'' variables,
+  or add lexicographic ordering cuts $x_{ij} \ge x_{i'j}$-style over each
+  symmetry class. Role \emph{slots} should never be modeled individually
+  (``contributor slot 1, slot 2'') --- the headcount form
+  \eqref{eq:v2-rolecover} is symmetry-free by construction.
+\item \textbf{Rolling horizon.} For long horizons, solve Variant 2 over a
+  window (e.g.\ 8 weeks detailed + remainder aggregated to Variant-1
+  granularity), commit the first weeks, roll forward. Combine with the
+  re-solve stability penalty of Section~\ref{sec:continuity}.
+\item \textbf{Warm starts.} The incumbent staffing plan is almost always
+  feasible for the re-solve after minor data changes; pass it as a MIP
+  start.
+\item \textbf{Infeasibility handling.} Prefer Variant 3's priced slacks to
+  post-hoc IIS analysis: the optimal slack pattern is itself the
+  diagnosis, in the units managers care about.
+\end{itemize}
+
+%=====================================================================
+\section{Choosing a Variant: Summary}
+%=====================================================================
+
+\begin{center}
+\begin{tabular}{p{3.4cm} p{4.6cm} p{6.2cm}}
+\toprule
+Variant & Decision granularity & Use when \\
+\midrule
+1. Static, hard coverage &
+$x_{ij}$ &
+Portfolio-level team composition; stable long-lived projects; staffing is
+feasible and mandatory. \\[6pt]
+2. Time- and role-indexed &
+$x_{ijrt}$, $h_{ijt}$ &
+Varying effort profiles; part-time multi-project work; roles and hand-offs
+matter; capacity is the binding resource. \\[6pt]
+3. Soft coverage + selection &
+Variant 1 or 2 $+\ w_j,\ u_{js},\ q_{jt}$ &
+Demand exceeds supply; portfolio triage is part of the question;
+infeasibility must degrade into priced, diagnosable shortfalls. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The modules of Section~5 --- pairwise compatibility, synergy, diversity
+ratios, time-zone quorum, fairness, stretch assignments --- bolt onto any
+row of this table, and the objective machinery of Section~6 applies
+uniformly. In practice the recommended path is: start with Variant~1 plus
+soft coverage (the Variant-3 surgery), validate the data and weights with
+$\varepsilon$-constraint sweeps, and move to Variant~2 only for the
+projects and people where period-level capacity is demonstrably the
+binding constraint.
+
+\end{document}

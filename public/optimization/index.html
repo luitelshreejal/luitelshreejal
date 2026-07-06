@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>People → Projects — Assignment Optimization</title>
+<link rel="stylesheet" href="vendor/katex/katex.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+
+  <nav class="top-nav">
+    <a href="index.html" class="top-nav-link active">Interactive demo</a>
+    <!-- FORMULATION_NAV_START --><a href="formulation.html" class="top-nav-link">Formulation</a><!-- FORMULATION_NAV_END -->
+  </nav>
+
+  <header class="hero">
+    <div class="brand">PEOPLE&nbsp;&nbsp;→&nbsp;&nbsp;PROJECTS</div>
+    <h1>Assignment Optimization</h1>
+    <p class="subtitle">A live MILP: skills must be covered by the <em>team</em>, not any one person.</p>
+  </header>
+
+  <div class="mode-bar">
+    <div class="segmented" id="modeToggle">
+      <button data-mode="hard" class="seg-btn active">Hard coverage &middot; Variant 1</button>
+      <button data-mode="soft" class="seg-btn">Soft coverage &middot; Variant 3</button>
+    </div>
+    <div class="mode-bar-actions">
+      <button id="shareBtn" class="ghost-btn" title="Copy a link that reproduces this exact scenario">🔗 Copy link</button>
+      <button id="solveBtn" class="solve-btn">Solve ▸</button>
+    </div>
+  </div>
+
+  <div class="solver-bar">
+    <span class="preset-label">Solver engine</span>
+    <div class="segmented segmented-sm" id="solverToggle">
+      <button data-backend="js" class="solver-btn active" title="Enumerates every combination in the browser — no backend needed, always available.">Brute-force (JS)</button>
+      <button data-backend="scipy" class="solver-btn" title="Real branch-and-cut MILP via scipy.optimize.milp (HiGHS) — needs the local Python backend running.">SciPy &middot; HiGHS</button>
+    </div>
+    <span id="solverStatus" class="solver-status" style="display:none"></span>
+  </div>
+  <p class="latency-line" id="latencyLine">Latency: measuring…</p>
+
+  <div class="preset-bar" id="presetBar">
+    <span class="preset-label">Scenarios</span>
+  </div>
+  <p class="preset-desc preset-desc-hint" id="presetDesc">Hover a scenario to see what it changes.</p>
+
+  <div class="status-row">
+    <div id="statusBanner" class="status-banner idle">Ready — click Solve to run the optimizer.</div>
+    <div class="progress-track"><div id="progressFill" class="progress-fill"></div></div>
+  </div>
+
+  <div class="board">
+    <svg id="edgeSvg"></svg>
+
+    <section class="people-col">
+      <h2>People <span class="count">I</span></h2>
+      <div id="peopleList" class="card-list"></div>
+    </section>
+
+    <div class="graph-wrap"></div>
+
+    <section class="projects-col">
+      <h2>Projects <span class="count">J</span></h2>
+      <div id="projectsList" class="card-list"></div>
+    </section>
+  </div>
+
+  <div class="controls">
+    <div class="objective-readout">
+      <div class="label">Objective</div>
+      <div id="objValue" class="value">—</div>
+      <div class="formula" id="objFormula">&alpha;&middot;fit + &beta;&middot;pref &minus; &gamma;&middot;cost</div>
+    </div>
+
+    <div class="sliders">
+      <label class="slider-row">
+        <span class="slider-label">&alpha; <em>fit weight</em></span>
+        <input type="range" id="alpha" min="0" max="2" step="0.1" value="1">
+        <span class="slider-val" id="alphaVal">1.0</span>
+      </label>
+      <label class="slider-row">
+        <span class="slider-label">&beta; <em>preference weight</em></span>
+        <input type="range" id="beta" min="0" max="2" step="0.1" value="1">
+        <span class="slider-val" id="betaVal">1.0</span>
+      </label>
+      <label class="slider-row">
+        <span class="slider-label">&gamma; <em>cost weight</em></span>
+        <input type="range" id="gamma" min="0" max="2" step="0.1" value="1">
+        <span class="slider-val" id="gammaVal">1.0</span>
+      </label>
+      <label class="slider-row soft-only">
+        <span class="slider-label">&phi; <em>shortfall penalty</em></span>
+        <input type="range" id="phi" min="0" max="10" step="0.5" value="4">
+        <span class="slider-val" id="phiVal">4.0</span>
+      </label>
+    </div>
+  </div>
+
+  <details class="panel formulation-live" id="formulationLive">
+    <summary>View formulation — the exact MILP instance, written out for this scenario</summary>
+    <div class="panel-body">
+      <p class="panel-lead">Not the abstract template — the concrete problem the solver is optimizing right now, with every <span class="mono">x</span> carrying its real person and project, every coefficient its current numeric value, and every constraint enumerated over these 6 people, 3 projects, and 3 skills. The reasonable right-hand-side values (coverage headcounts, budgets, team sizes, concurrency) are <strong>editable</strong> — nudge a <span class="mono">±</span> control and the model re-solves. <button id="resetInstanceBtn" class="ghost-btn ghost-btn-sm" style="display:none">Reset edits</button> <a href="formulation.html" class="inline-link">Abstract write-up →</a></p>
+      <div class="live-form" id="liveForm"></div>
+    </div>
+  </details>
+
+  <section class="panel insights" id="insightsPanel">
+    <div class="panel-head">
+      <h3>Why this plan</h3>
+      <button id="analyzeBtn" class="ghost-btn">Run sensitivity &amp; repair analysis ▸</button>
+    </div>
+    <div class="insights-grid">
+      <div class="insight-col">
+        <div class="insight-title">Who's on the bench, and why</div>
+        <ul class="reason-list" id="whyNotList"><li class="reason-empty">Solve to see per-person reasoning.</li></ul>
+      </div>
+      <div class="insight-col">
+        <div class="insight-title">Binding constraints <span class="insight-sub">shadow prices — value of relaxing by one step</span></div>
+        <ul class="reason-list" id="shadowList"><li class="reason-empty">Run the analysis to compute marginal values.</li></ul>
+      </div>
+      <div class="insight-col insight-col-wide">
+        <div class="insight-title" id="repairTitle">Minimal repairs <span class="insight-sub">single changes that fix the gap</span></div>
+        <ul class="reason-list" id="repairList"><li class="reason-empty">Run the analysis to find the smallest fixes.</li></ul>
+      </div>
+    </div>
+    <div class="analyze-progress" id="analyzeProgress"><div class="analyze-progress-fill" id="analyzeProgressFill"></div></div>
+  </section>
+
+  <section class="panel whatif" id="whatifPanel">
+    <div class="panel-head">
+      <h3>What-if — sensitivity frontier</h3>
+      <div class="whatif-controls">
+        <label class="whatif-param">Sweep
+          <select id="sweepParam"></select>
+        </label>
+        <button id="sweepBtn" class="ghost-btn">Run sweep ▸</button>
+      </div>
+    </div>
+    <p class="panel-lead">Re-solves the full MILP across a range of one parameter, tracing the trade-off between objective value and coverage shortfall. The dashed line marks the current setting.</p>
+    <div class="chart-wrap"><svg id="sweepChart" viewBox="0 0 720 260" preserveAspectRatio="xMidYMid meet"></svg></div>
+    <div class="chart-legend" id="sweepLegend"></div>
+  </section>
+
+  <details class="extensions" open>
+    <summary>Extension modules — attach without changing the base model</summary>
+    <div class="ext-row">
+      <label class="ext-toggle">
+        <input type="checkbox" id="extCompat">
+        <span><strong>Compatibility</strong> — Ben &amp; Chen can't be on the same team</span>
+      </label>
+      <label class="ext-toggle">
+        <input type="checkbox" id="extDiversity">
+        <span><strong>Diversity ratio</strong> — no department &gt; 60% of a team</span>
+      </label>
+    </div>
+
+    <div class="ext-divider soft-only-control">
+      <label class="ext-toggle">
+        <input type="checkbox" id="extSkillLoad">
+        <span><strong>Skill-load control</strong> (&sect;3.3) — cap how many skills on one project a single person may be credited for <span class="ext-scope">Variant 3 only</span></span>
+      </label>
+      <label class="slider-row kappa-row">
+        <span class="slider-label">&kappa; <em>max skills owned per project</em></span>
+        <input type="range" id="kappa" min="1" max="3" step="1" value="1">
+        <span class="slider-val" id="kappaVal">1</span>
+      </label>
+      <p class="ext-explain">Off: coverage counts every qualified person on the team (Variant 3's base rule). On: coverage is computed by an exact solve of &ldquo;who covers what&rdquo; (eqs. 6&ndash;8) &mdash; a person qualified for several needed skills can only be credited toward &kappa; of them, so a versatile generalist can no longer single-handedly satisfy multiple coverage rows.</p>
+    </div>
+  </details>
+
+  <footer class="foot">Brute-force exact solver over the full feasible search space &mdash; every result shown is a genuine (and, on completion, provably optimal) solution to the MILP, not a scripted animation.</footer>
+</div>
+
+<script src="vendor/katex/katex.min.js"></script>
+<script src="data.js"></script>
+<script src="solver.js"></script>
+<script src="analysis.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

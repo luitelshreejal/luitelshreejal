@@ -1,0 +1,3 @@
+[submodule "optimization-group-assignment/optimization-dashboard"]
+	path = optimization-group-assignment/optimization-dashboard
+	url = https://github.com/luitelshreejal/milp-people-optmization.git
